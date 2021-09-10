@@ -1,0 +1,74 @@
+---
+title: "Demonstration: Extracting features from ground-based photographs"
+author: "Jack Krebsbach"
+date: "4/25/2021"
+output: html_document
+---
+
+## Setup
+```{r setup}
+knitr::opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
+```
+
+## Import code library
+```{r}
+#Load the tidyverse
+library(tidyverse) 
+
+#multidplyr
+library(multidplyr)
+
+#Meanshift Image Segmentation
+Sys.setenv(RETICULATE_PYTHON =
+             '/opt/anaconda3/envs/meanshift/bin/python')
+library(reticulate)
+source_python("code/extracting_features/library/meanshift_segmentation.py")
+
+#Texture Calcuation
+source("code/extracting_features/library/glcm_texture.R")
+
+#Color Space Transformations
+source("code/extracting_features/library/color_space_transformation.R")
+```
+
+
+## Plot RGB Image
+```{r}
+rgb_file <-"outputs/demonstration/rgb.tif"
+ 
+rgb_file %>%
+    raster::brick() %>%
+    raster::plotRGB()
+```
+
+## Transform and plot HSV, Lab, and L images 
+```{r}
+hsv_file <- rgb_file %>% 
+            color_transform(transform = "RGBtoHSV") 
+hsv_file %>%
+           raster::brick() %>%
+           raster::plotRGB()
+```
+
+
+## Calculate and plot texture images 
+```{r}
+getwd()
+"outputs/demonstration/hsv.tif" %>%
+    calculate_texture() %>%
+    raster::brick() %>%
+    raster::plotRGB()
+```
+
+
+## Apply meanshift image segmentation and plot
+```{r}
+hsv_file %>%
+    segment() %>%  #Python function for image segmentation
+    raster::brick() %>%
+    raster::plotRGB()
+```
+
+
+
+

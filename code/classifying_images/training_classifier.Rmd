@@ -1,0 +1,258 @@
+---
+title: "training_classifier"
+author: "Jackson Krebsbach"
+date: "7/31/2021"
+output: html_document
+---
+
+#Setup
+```{r setup, include=FALSE}
+rm(list = ls())
+gc()
+require("knitr")
+knitr::opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
+```
+
+## Load Libraries
+```{r setup, include=FALSE}
+library(tidyverse)
+library(tidymodels)
+library(ranger)
+library(randomForest)
+show_engines("rand_forest")
+rf_pixel_model <- rand_forest() %>%
+                  set_engine("ranger", importance = "impurity") %>%
+                  set_mode("classification") %>%
+                  translate()
+
+#load("clean_data/rdata/math_fest/train_values.RData")
+#load("clean_data/rdata/math_fest/val_values.RData")
+
+train_values %<>%  transform(label = as.factor(label)) 
+val_values %<>%  transform(label = as.factor(label)) 
+test_values %<>% transform(label = as.factor(label))
+```
+
+
+## Get All Data
+```{r}
+
+val_values <- test_values
+total_val_accuracy <- c()
+total_train_accuracy <- c()
+
+for(i in 1:10){
+#lab_seg_6_4.5_50.1 + lab_seg_6_4.5_50.2 +lab_seg_6_4.5_50.3
+  #rgb_seg_6_4.5_50.1 + rgb_seg_6_4.5_50.2 +rgb_seg_6_4.5_50.3
+ #hsv_seg_6_4.5_50.1 + hsv_seg_6_4.5_50.2 +hsv_seg_6_4.5_50.3
+rf_fit <- rf_pixel_model %>% fit(label ~ hsv_seg_6_4.5_50.1 + hsv_seg_6_4.5_50.2 +hsv_seg_6_4.5_50.3 +
+                                   hsv_contrast_L3_W7 + hsv.1 + hsv.2 + hsv.3
+                                 , data = train_values)
+val_pred <- predict(rf_fit, val_values) %>% 
+    bind_cols(predict(rf_fit, val_values, type = "prob")) %>%
+    bind_cols(val_values %>% dplyr::select(label)) 
+
+val_pred %>% conf_mat(truth = label, .pred_class) 
+val_pred %>% accuracy(truth = label, .pred_class) -> val_accuracy
+train_accuracy <- 1- rf_fit$fit$prediction.error
+
+
+total_val_accuracy <- c(total_val_accuracy, val_accuracy$.estimate)
+total_train_accuracy <- c(total_train_accuracy, train_accuracy)
+}
+
+val <- tibble( mean_val = mean(total_val_accuracy), sd_val = sd(total_val_accuracy))
+train <- tibble( mean_train = mean(total_train_accuracy), sd_train = sd(total_train_accuracy))
+
+
+total <- train %>% cbind(val)
+beep()
+print(total)
+```
+
+
+#Classify Image
+```{r}
+
+pred_fun <- function(...){
+  p <- predict(...)
+  return(as.matrix(as.numeric(p[, 1, drop = TRUE]))) 
+}
+
+getStack <- function(dir) {
+  list.files(dir, pattern = ".tif", full.names = TRUE ) %>% 
+    raster::stack(quick =TRUE) %>%
+    return()
+}
+
+
+
+hsv_seg <- raster::brick("clean_data/quadrats/quadrat34/hsv_seg_6_4.5_50.tif")
+extent(hsv_seg) <- raster::extent(c(0, 4032, 0, 3024))
+
+contrast <- raster::brick("clean_data/quadrats/quadrat34/hsv_contrast_L3_W7.tif")
+extent(contrast) <- raster::extent(c(0, 4032, 0, 3024))
+
+hsv <- raster::brick("clean_data/quadrats/quadrat34/hsv.tif")
+extent(hsv) <- raster::extent(c(0, 4032, 0, 3024))
+
+stack <- stack(hsv_seg, contrast, hsv)
+
+
+stack %>% 
+  raster::predict(rf_fit, type = "class", fun = pred_fun, filename =  "outputs/forward_selection/classified34.tif", 
+                        datatype = 'INT1U', format = "GTiff", overwrite = TRUE)  -> predict_raster
+
+ggRGB(predict_raster, r = 1, g = 2, b = 3, maxpixels = 5e+05) 
+
+beep()
+classify_image <- function(quadrat_dir, rf_fit){
+    quadrat <- quadrat_dir %>% str_split("/") %>% .[[1]] %>% .[3]
+    
+    file_to_write <- paste0('clean_data/classified/', quadrat, '.tif')
+
+    quadrat_dir %>% 
+                getStack() %>%
+                raster::predict(rf_fit, type = "class", fun = pred_fun, filename =  file_to_write, 
+                        datatype = 'INT1U', format = "GTiff", overwrite = TRUE) 
+
+    return(file_to_write)
+}
+
+
+```
+
+# First Run
+```{r}
+
+df <- tibble( data_set = c("training", "training","training", "validation","validation", "validation"),
+              
+              color_space = c("RGB", "HSV", "LAB","RGB", "HSV", "LAB"),
+              accuracy = c(92.6, 93.3, 87.7, 88.2, 89.0, 74.2))
+df %<>% mutate(data_set = as.factor(data_set))
+```
+
+
+```{r}
+ggplot(df, aes(color_space, accuracy)) + 
+    geom_bar(aes(fill= data_set),position="dodge", stat="identity") +
+   scale_y_continuous(breaks = scales::pretty_breaks(n = 10)) + 
+   geom_text(position = position_dodge(width= 0.5),
+             aes(label = accuracy, fill = data_set, vjust =-0.5)) +
+   xlab("Color Space") +
+   ylab("Accuracy") +
+   theme(
+      axis.title.x = element_text( size=14, face="bold"),
+      axis.title.y = element_text( size=14, face="bold")
+    )+ guides(fill=guide_legend(title=" Data Set"))
+  
+
+```
+
+
+
+
+# Look at first layers
+```{r}
+
+
+orig_data <- data[1:4, 1:4][-1,][-1,]
+colnames(orig_data) <- c( "","RGB", "HSV", "LAB")
+
+orig_data
+orig_data 
+
+df <- tibble( data_set = c("training", "training","training", "validation","validation", "validation"), color_space = c("RGB", "HSV", "LAB","RGB", "HSV", "LAB"), accuracy = c(92.6, 93.3, 87.7, 88.2, 89.0, 74.2))
+df %<>% mutate(data_set = as.factor(data_set))
+
+
+ggplot(df, aes(color_space, accuracy)) + 
+    geom_bar(aes(fill= data_set),position="dodge", stat="identity") +
+   scale_y_continuous(breaks = scales::pretty_breaks(n = 10)) + 
+   geom_text(position = position_dodge(width= 0.5), aes(label = accuracy, fill = data_set, vjust =-0.5)) +
+   xlab("Color Space") +
+   ylab("Accuracy") +
+   theme(
+      axis.title.x = element_text( size=14, face="bold"),
+      axis.title.y = element_text( size=14, face="bold")
+    )+ guides(fill=guide_legend(title=" Data Set"))
+  
+
+```
+
+
+#Plot Accuracy over layers
+```{r}
+
+
+df <- tibble(step = seq(1,6), accuracy=c(89.0, 91.85, 92.43, 92.43, 92.55, 92.92), layer= c("hsv", " + contrast (7)", " + hsv segmented", " + contrast (5)", " + lab segmented", " + contrast (3)"))
+df
+
+ggplot(df) +
+  geom_line(mapping = aes(x = step, y = accuracy) )+ 
+   geom_text(aes(label = accuracy, x = step, y = accuracy, vjust = -0.5)) + 
+  geom_text(position = position_dodge(width= 0.5), aes(label = layer, x = step, y = accuracy, vjust = -3), color = "brown", size = 3.5) + 
+   scale_x_continuous(breaks = scales::pretty_breaks(n = 5))  +
+  ylim(87.5, 95) +
+  xlab("Step") +
+   ylab("Accuracy") +
+   theme(
+      axis.title.x = element_text( size=14, face="bold"),
+      axis.title.y = element_text( size=14, face="bold"),
+
+    )
+  
+```
+
+```{r}
+library(ggplot2)
+ 
+# create a dataset
+specie <- c(rep("sorgho" , 3) , rep("poacee" , 3) , rep("banana" , 3) , rep("triticum" , 3) )
+condition <- rep(c("normal" , "stress" , "Nitrogen") , 4)
+value <- abs(rnorm(12 , 0 , 15))
+data <- data.frame(specie,condition,value)
+data
+
+```
+
+
+## Set up
+```{r}
+train_values <- train_values %>% transform(label = as.factor(label)) %>% tibble()
+val_values <- val_values %>% transform(label = as.factor(label)) %>% tibble() 
+
+
+  rf_pixel_model <- rand_forest() %>%
+                  set_engine("ranger", importance = "impurity") %>%
+                  set_mode("classification") %>%
+                  translate()
+
+feature_names <- names(train_values)[-1]
+
+```
+
+
+#Get Accuracies
+```{r}
+get_layer_accuracy <- function(feature_name, train_values, val_values){
+  rf_fit <- rf_pixel_model %>% fit(label ~ get(feature_name), data = train_values)
+  
+  val_pred <- predict(rf_fit, val_values) %>% 
+      bind_cols(predict(rf_fit, val_values, type = "prob")) %>%
+      bind_cols(val_values %>% dplyr::select(label)) 
+    
+ # val_pred %>% conf_mat(truth = label, .pred_class)
+  val_pred %>% 
+    accuracy(truth = label, .pred_class) %>% bind_cols(tibble( layer = feature_name)) %>%
+    return()
+}
+
+
+feature_names %>% 
+  map(.f = get_layer_accuracy,
+      train_values = train_values, val_values = val_values) %>% bind_rows() -> accuracies
+
+```
+
+

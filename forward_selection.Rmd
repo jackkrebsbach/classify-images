@@ -1,0 +1,91 @@
+---
+title: "Forward Selection"
+author: "Jackson Krebsbach"
+date: "8/3/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# First Run
+```{r}
+df <- read_csv("clean_data/2_step.csv") %>% as_tibble()
+df %<>% mutate(feature_type = as.factor(feature_type), layer = as.factor(paste( "+",layer))) %>% select(c(layer, val_mean, feature_type))
+df
+```
+
+```{r}
+ggplot(df, mapping = aes(x = layer, y=val_mean*100)) +
+  geom_bar(mapping = aes(fill = layer), stat = 'identity',width= 0.70, position = position_dodge(width=50)) +scale_fill_viridis(discrete = TRUE) +
+    geom_text(position = position_dodge(width= 0.25),
+             aes( x = layer, y = val_mean * 100, label = round(val_mean *100, digits = 2), vjust =-0.5)) + 
+  xlab("Layer") +
+   ylab("Accuracy") +
+   theme(
+      axis.title.x = element_text( size=14, face="bold"),
+      axis.title.y = element_text( size=14, face="bold"),
+      legend.position = "none"
+    )
+
+```
+
+```{r}
+ggplot(df, mapping = aes(x = layer, y=val_mean*100)) +
+  geom_bar(mapping = aes(fill = layer), stat = 'identity',width= 0.70, position = position_dodge(width=50)) +scale_fill_viridis(discrete = TRUE) +
+  facet_grid(~feature_type,shrink = FALSE,scales="free")+
+    geom_text(position = position_dodge(width= 0.25),
+             aes( x = layer, y = val_mean * 100, label = round(val_mean *100, digits = 2), vjust =-0.5)) + 
+  xlab("Layer") +
+   ylab("Accuracy") +
+   theme(
+      axis.title.x = element_text( size=14, face="bold"),
+      axis.title.y = element_text( size=14, face="bold"),
+      legend.position = "none"
+    )
+
+```
+
+#Plot
+```{r}
+ggplot(df, position="dodge") + 
+    geom_col(mapping = aes(x  = layer, y =  val_mean *100, width = 0.75, group = feature_type, colour = feature_type),position="dodge", stat="identity") +
+    geom_text(position = position_dodge(width= 0.25),
+             aes( x = layer, y = val_mean * 100, label = val_mean *100, vjust =-0.5)) +
+   scale_y_continuous(breaks = scales::pretty_breaks(n = 10))  +
+   xlab("Layer") +
+   ylab("Accuracy") +
+   theme(
+      axis.title.x = element_text( size=14, face="bold"),
+      axis.title.y = element_text( size=14, face="bold")
+    )+ guides(fill=guide_legend(title="Feature type"))
+```
+
+
+
+
+
+#Plot Accuracy over layers
+```{r}
+
+df <- tibble(step = seq(1,6), accuracy=c(89.0, 91.80, 92.40, 92.57, 92.52, 92.57 ), layer= c("hsv segmented", " + contrast (7)", " + hsv", " + contrast (5)",  " + contrast (3)", " + rgb "))
+
+
+ggplot(df) +
+  geom_line(mapping = aes(x = step, y = accuracy) )+ 
+   geom_text(aes(label = accuracy, x = step, y = accuracy, vjust = -0.5)) + 
+  geom_text(position = position_dodge(width= 0.5), aes(label = layer, x = step, y = accuracy, vjust = -3), color = "brown", size = 3.5) + 
+   scale_x_continuous(breaks = scales::pretty_breaks(n = 5))  +
+  ylim(87.5, 95) +
+  xlab("Step") +
+   ylab("Accuracy") +
+   theme(
+      axis.title.x = element_text( size=14, face="bold"),
+      axis.title.y = element_text( size=14, face="bold"),
+
+    )
+  
+```
+
+

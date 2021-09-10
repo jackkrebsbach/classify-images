@@ -1,0 +1,110 @@
+---
+title: "Testing Extracting Features"
+author: "Jackson Krebsbach"
+date: "7/1/2021"
+output: html_document
+---
+
+## Setup
+```{r setup, include=FALSE}
+rm(list = ls())
+gc()
+knitr::opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Source Functions
+```{r, echo = FALSE, results='hide', message=FALSE}
+source("code/extracting_features/library/setup.R")
+```
+
+# Set up Cluster
+```{r}
+cl <- new_cluster(3) %>%
+  cluster_library("tidyverse") %>%
+  cluster_library("stringr") %>%
+  cluster_library("glcm") %>%
+  cluster_library("imager") %>%
+  cluster_library("raster")%>%
+  cluster_library("reticulate") %>%
+  cluster_copy("color_transform") %>%
+  cluster_copy("calculate_texture") %>%
+  cluster_copy("segment") %>%
+  cluster_copy("getFileDirectory") %>%
+  cluster_copy("getFileName") %>%
+  cluster_copy("getColorPath") %>%
+  cluster_copy("getSegmentPath") %>%
+  cluster_copy("getTexturePath") %>%
+  cluster_copy("color_transforms_function") %>%
+  cluster_copy("texture_calculations_function") %>%
+  cluster_copy("image_segmentation_function")
+```
+
+
+# Color Space Transformations
+```{r}
+#Perform Color Space Transformations (In Parallel)
+file_paths <- tibble(inpath = c("outputs/testing/dense/rgb.tif",
+                                "outputs/testing/middle/rgb.tif",
+                                "outputs/testing/sparce/rgb.tif"))
+
+#Color Transform Parameters
+color_transforms <- tibble(transform = c("RGBtoHSV", "RGBtoYUV", "RGBtoLab", "RGBtoHSI", "RGBtoHSL"))
+color_parameters <- file_paths %>% 
+  full_join(color_transforms, by = character())
+
+color_out <- color_parameters %>%
+  mutate(inpath_exists = file.exists(inpath)) %>%
+  partition(cl) %>%
+  mutate(outpath = color_transforms_function(inpath, transform, doComp = FALSE, overWrite = TRUE)) %>%
+  collect() %>%
+  mutate(outpath_exists = file.exists(outpath))
+color_out
+```
+
+# Texture Calculations
+```{r}
+#Texture Parameters
+texture_windows <- tibble(window = c(3L, 5L)) 
+texture_layers <- tibble(layer = c(1L))
+texture_stats <- tibble(statistic = c("contrast"))
+
+#Perform Texture Calculations
+texture_parameters <- color_out %>%
+  dplyr::select(transform, outpath, inpath_exists, outpath_exists) %>%
+  rename(inpath = outpath) %>%
+  dplyr::select(inpath) %>%
+  full_join(texture_windows, by = character()) %>% 
+  full_join(texture_stats, by = character()) %>%
+  full_join(texture_layers, by = character())
+
+texture_out <- texture_parameters %>%
+  mutate(inpath_exists = file.exists(inpath)) %>%
+  mutate(outpath = texture_calculations_function(inpath, window, statistic, layer,
+                                                 doComp = FALSE, overWrite = TRUE)) %>%
+  mutate(outpath_exists = file.exists(outpath))
+texture_out
+```
+
+# Image Segmentation
+```{r}
+segment_spatial <- tibble(spatial_radius = c(3))
+segment_range <-tibble(range_radius = c(2.5))
+segment_denisty <-tibble(min_density = c(25, 30))
+
+segment_parameters <- color_out %>%
+  dplyr::select(outpath) %>%
+  rename(inpath = outpath) %>%
+  full_join(segment_spatial, by = character()) %>% 
+  full_join(segment_range, by = character()) %>%
+  full_join(segment_denisty, by = character())
+
+segment_out <- segment_parameters %>%
+  mutate(inpath_exists = file.exists(inpath)) %>%
+  mutate(outpath = image_segmentation_function(inpath, spatial_radius,
+                                               range_radius, min_density,
+                                               doComp = FALSE, overWrite = FALSE)) %>%
+  mutate(outpath_exists = file.exists(outpath))
+segment_out
+```
+

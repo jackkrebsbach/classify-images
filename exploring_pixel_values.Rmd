@@ -1,0 +1,88 @@
+---
+title: "Exploring_Pixel_Values"
+author: "Jackson Krebsbach"
+date: "7/20/2021"
+output: html_document
+---
+
+#Setup
+```{r setup, include=FALSE}
+require("knitr")
+knitr::opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
+```
+
+#Load Libraries and functions
+```{r,echo = FALSE, results='hide', message=FALSE}
+#rm(list = ls())
+#gc()
+library(tidyverse)
+library(magrittr)
+library(tictoc)
+source("code/helpers/veggie_functions.R")
+```
+
+## Get poly_key
+```{r}
+poly_key <- poly_key_geom %>% st_drop_geometry()
+poly_key %<>% select(-imagePath)
+```
+
+# Explore Data
+```{r}
+rgb %>% bind_rows %>% left_join(poly_key) %>% filter(train_val == "train") -> rgb_pixels
+rgb_pixels
+```
+
+#Area by class
+```{r}
+#scaleFUN <- function(x) sprintf("%.2f", x)
+rgb_pixels %>% group_by(label) %>% summarize(area = sum(area)) -> area_summary
+ggplot(area_summary) +
+  geom_col(mapping = aes(x = label, y = area, fill= label)) +
+  scale_fill_manual(values=c("#b7a386", "#5a6233", "#5e4a31"))# +
+  #scale_y_continuous(labels = scaleFUN)
+```
+
+#Polygons
+```{r}
+poly_key %<>% mutate(area_class = cut(area, 10^seq(-2, 5.5, 0.25))) 
+
+poly_key %>% group_by(area_class, label) %>% summarize(area = sum(area), n = n()) %>% mutate(ave_area = area/n) -> poly_summary 
+poly_summary %>% print()
+
+ggplot(poly_key, aes(x = area)) + 
+  facet_grid(.~label, scales = "free") +
+ # scale_x_log10() +
+  geom_histogram(bins = 50)
+
+```
+
+#Area by class
+```{r}
+ggplot(poly_summary, aes(x = area_class, y = area, label = n)) +
+  geom_col()  +
+  geom_text(nudge_y = 10000, size = 2) +
+  theme(axis.text.x = element_text(angle = 75, hjust=1,size = 5)) +
+  facet_grid(.~label, scales = "free_y")
+```
+
+
+#Look at training points 
+```{r}
+im_path <- "clean_data/quadrats/quadrat38/rgb.tif"
+json_path <- "clean_data/quadrats/quadrat38/rgb.json"
+
+img <- im_path %>%
+  brick()
+
+rgb_pixels %<>% filter(quadrat == 5)
+
+sampled_pts <- img %>%
+  raster::xyFromCell(rgb_pixels$cell) %>% st_multipoint()
+
+
+p <- plot_labeled(im_path, json_path, maxpixels = 1e+6)
+p + geom_sf(data = sampled_pts, color = "purple", size = 0.00025)
+# ggsave("outputs/test_labeled_training_pts.pdf")
+```
+
