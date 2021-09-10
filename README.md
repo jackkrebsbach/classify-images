@@ -92,4 +92,3 @@ Here is an example of a classified image, made up of three different classes. Fo
 </table>
 
 In this particular problem we used the classified images to estimate vegetation density.  We take these vegetation density estimates and create a regression model with imagery taken with a drone to calculate vegetation density across an entire dune complex.
-# jackkrebsbach
