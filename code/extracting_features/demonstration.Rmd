@@ -7,21 +7,20 @@ output: html_document
 
 ## Setup
 ```{r setup}
+#Make sure the working directory is correct
 knitr::opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
 ```
 
 ## Import code library
-```{r}
-#Load the tidyverse
+```{r, include = FALSE, echo = FALSE}
+#Libraries
 library(tidyverse) 
-
-#multidplyr
-library(multidplyr)
-
-#Meanshift Image Segmentation
-Sys.setenv(RETICULATE_PYTHON =
-             '/opt/anaconda3/envs/meanshift/bin/python')
+library(magick)
+library(imager)
 library(reticulate)
+
+#Python Environment and Script Sourcing
+Sys.setenv(RETICULATE_PYTHON = '/Users/krebsbach/pyenvs/reticulate/bin/python3')
 source_python("code/extracting_features/library/meanshift_segmentation.py")
 
 #Texture Calcuation
@@ -31,17 +30,16 @@ source("code/extracting_features/library/glcm_texture.R")
 source("code/extracting_features/library/color_space_transformation.R")
 ```
 
-
 ## Plot RGB Image
 ```{r}
-rgb_file <-"outputs/demonstration/rgb.tif"
- 
+rgb_file <-"outputs/demonstration/rgb.tif" 
+
 rgb_file %>%
     raster::brick() %>%
     raster::plotRGB()
 ```
 
-## Transform and plot HSV, Lab, and L images 
+## Transform RGB image to HSV representation and plot HSV image
 ```{r}
 hsv_file <- rgb_file %>% 
             color_transform(transform = "RGBtoHSV") 
@@ -50,24 +48,24 @@ hsv_file %>%
            raster::plotRGB()
 ```
 
-
-## Calculate and plot texture images 
+## Calculate texture and plot texture image
 ```{r}
-getwd()
-"outputs/demonstration/hsv.tif" %>%
+hsv_file  %>%
     calculate_texture() %>%
     raster::brick() %>%
     raster::plotRGB()
 ```
 
 
-## Apply meanshift image segmentation and plot
+## Apply meanshift image segmentation and plot segmented image
 ```{r}
 hsv_file %>%
     segment() %>%  #Python function for image segmentation
     raster::brick() %>%
     raster::plotRGB()
 ```
+
+
 
 
 

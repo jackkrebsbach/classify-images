@@ -1,24 +1,16 @@
-# Load the tidyverse
+knitr::opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
+
 library(tidyverse)
-# data frame manipulation
 library(multidplyr)
-# string Manipulation
 library(stringr)
-# Meanshift Image Segmentation
 library(reticulate)
 Sys.setenv(
-  RETICULATE_PYTHON =
-    "/opt/anaconda3/envs/meanshift/bin/python"
-)
-source_python("code/extracting_features/library/meanshift_segmentation.py")
-# Texture Calculation
+  RETICULATE_PYTHON = '/Users/krebsbach/pyenvs/reticulate/bin/python3'
+  )
 source("code/extracting_features/library/glcm_texture.R")
-
-# Color Space Transformations
 source("code/extracting_features/library/color_space_transformation.R")
 
-
-color_transforms_function <- function(inpaths, transforms, doComp, overWrite){
+color_transforms_function <- function(inpaths, transforms, doComp = FALSE, overWrite = FALSE){
   
   doCompVector <- rep(doComp, length(inpaths))
   
@@ -35,7 +27,7 @@ color_transforms_function <- function(inpaths, transforms, doComp, overWrite){
 }
 
 
-texture_calculations_function <- function(inpaths, windows, statistics, layers, doComp, overWrite){
+texture_calculations_function <- function(inpaths, windows, statistics, layers, doComp = FALSE, overWrite = FALSE){
   doCompVector <- rep(doComp, length(inpaths))
   
   if(!overWrite & doComp){
@@ -54,10 +46,8 @@ texture_calculations_function <- function(inpaths, windows, statistics, layers, 
 
 image_segmentation_function <- function(inpaths, spatial_radii, range_radii, min_densities, doComp = FALSE, overWrite = FALSE){
   Sys.setenv(
-    RETICULATE_PYTHON =
-      "/opt/anaconda3/envs/meanshift/bin/python"
-  )
-  
+    RETICULATE_PYTHON = '/Users/krebsbach/pyenvs/reticulate/bin/python3'
+    )
   source_python("code/extracting_features/library/meanshift_segmentation.py")
   
   doCompVector <- rep(doComp, length(inpaths))

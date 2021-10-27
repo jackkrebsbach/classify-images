@@ -7,20 +7,17 @@ output: html_document
 
 ## Setup
 ```{r setup, include=FALSE}
-rm(list = ls())
-gc()
 knitr::opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
-knitr::opts_chunk$set(echo = TRUE)
 ```
 
-# Source Functions
+## Source Functions
 ```{r, echo = FALSE, results='hide', message=FALSE}
 source("code/extracting_features/library/setup.R")
 ```
 
-# Set up Cluster
+## Set up Cluster
 ```{r}
-cl <- new_cluster(2) %>%
+cl <- new_cluster(6) %>%
   cluster_library("tidyverse") %>%
   cluster_library("stringr") %>%
   cluster_library("glcm") %>%
@@ -40,8 +37,7 @@ cl <- new_cluster(2) %>%
   cluster_copy("image_segmentation_function")
 ```
 
-
-# Color Space Transformations
+## Color Space Transformations
 ```{r}
 file_paths <- 
   tibble(inpath= sprintf("clean_data/quadrats/quadrat%02d/rgb.tif", seq(34, 83, 1))) 
@@ -60,7 +56,7 @@ color_out <- color_parameters %>%
 color_out
 ```
 
-# Texture Calculations
+## Texture Calculations
 ```{r}
 #Texture Parameters
 texture_windows <- tibble(window = c(5L, 11L)) 
@@ -86,7 +82,7 @@ texture_out <- texture_parameters %>%
 texture_out
 ```
 
-# Image Segmentation
+## Image Segmentation
 ```{r}
 segment_spatial <- tibble(spatial_radius = c(3, 6))
 segment_range <-tibble(range_radius = c(4.5, 7.5))

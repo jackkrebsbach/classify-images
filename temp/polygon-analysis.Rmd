@@ -1,0 +1,266 @@
+---
+title: "Polygon Analysis"
+author: "Jackson Krebsbach"
+date: "9/28/2021"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
+#rm(list = ls())
+#gc()
+library(tidyverse)
+library(ggplot2)
+require(gridExtra)
+library(cowplot)
+library(sf)
+```
+
+#polygon analysis
+```{r}
+library(tidyverse)
+library(dplyr)
+library(sf)
+
+poly_key <- readRDS("./clean_data/pixel_values/poly_key.rds")
+
+rgb <- readRDS("./clean_data/pixel_values/rgb.rds")
+hsv <- readRDS("./clean_data/pixel_values/hsv.rds")
+hsv_seg <- readRDS("./clean_data/pixel_values/hsv_seg_6_4.5_50.rds")
+hsv_contrast <- readRDS("./clean_data/pixel_values/hsv_contrast_L3_W7.rds")
+
+key <- poly_key %>% select(c(poly_num, quadrat, area, train_val))
+
+rgb %>% 
+  bind_rows() %>%
+  full_join(key, by = c('quadrat', 'poly_num')) -> rgb_pixels
+
+hsv %>% 
+  bind_rows() %>%
+  full_join(key, by = c('quadrat', 'poly_num')) -> hsv_pixels
+
+hsv_seg %>% 
+  bind_rows() %>%
+  full_join(key, by = c('quadrat', 'poly_num')) %>%
+  dplyr::select(c(hsv_seg_6_4.5_50.1, hsv_seg_6_4.5_50.2, hsv_seg_6_4.5_50.3))-> hsv_seg_pixels
+
+hsv_contrast %>% 
+  bind_rows() %>%
+  full_join(key, by = c('quadrat', 'poly_num')) %>%
+  dplyr::select(hsv_contrast_L3_W7) -> hsv_contrast_pixels
+
+hsv_pixels %>% cbind(hsv_seg_pixels, hsv_contrast_pixels) -> total_pixels
+
+total_pixels %>% relocate(cell, quadrat, poly_num, area, polys, .after = hsv_contrast_L3_W7) %>% relocate(label, .before = hsv.1) -> pixels
+
+key_tbl <- key %>% as_tibble() %>% select(c(quadrat, poly_num, train_val))
+
+poly_pixels <- pixels %>% left_join(key_tbl, by  = c('quadrat', 'poly_num')) 
+saveRDS(poly_pixels,  file = "./clean_data/pixel_values/poly_pixels.rds" )
+
+
+summary <- poly_pixels %>% group_by(train_val) %>% summarize(count = n())
+summary
+```
+#Get Data
+```{r cars}
+polys_sf <- readRDS('./clean_data/pixel_values/polys_sf.rds') %>% st_make_valid() %>% as_tibble()
+val_pred <- readRDS("./clean_data/pixel_values/val_pred.rds") %>% 
+  left_join(polys_sf) %>%
+  dplyr::select(c(label, .pred_class, poly_num, quadrat, area)) 
+```
+
+
+## Polygon Area Distribution
+
+```{r}
+polys_sf %>%
+  mutate(area_class = cut(area, seq(min(area), max(area), 10000))) -> poly_area_summary
+
+ggplot(poly_area_summary, mapping = aes(x = label, y = area, fill = label, label = n)) +
+  geom_col() +
+```
+
+## Histogram
+
+```{r}
+ggplot(poly_area_summary, mapping = aes(x = area)) +
+  geom_histogram()
+
+```
+
+
+
+## Area by class
+```{r}
+#scaleFUN <- function(x) sprintf("%.2f", x)
+val_pred %>% group_by(label) %>% summarize(area = sum(area), n = n()) -> area_summary
+
+ggplot(area_summary, mapping = aes(x = label, y = area, fill = label, label = n)) +
+  geom_col() +
+  geom_text(nudge_y = 4e+8, size = 5) +
+  scale_fill_manual(values=c("#b7a386", "#5a6233", "#5e4a31"))# +
+  #scale_y_continuous(labels = scaleFUN)
+```
+
+
+## Filter Live Veg
+```{r}
+val_pred %>% filter(label == 'live vegetation') -> live_vegetation_data
+val_pred %>% filter(label == 'dead vegetation') -> dead_vegetation_data
+val_pred %>% filter(label == 'sand') -> sand_data
+```
+
+## Live Vegetation
+
+### Live Vegetation Exponential Cut
+```{r fig.height = 10, fig.width = 9, fig.align = "center", dpi=350, echo=FALSE}
+live_vegetation_data %>%
+  mutate(area_class = cut(area, 10^seq(-2, 5, 0.25))) -> live_vegetation
+
+#10^seq(-2, 5, 0.25))
+live_vegetation %>% group_by(area_class) %>%
+  summarize(area = sum(area), n = n()) %>%
+  mutate(ave_area = area/n) -> live_vegetation_summary 
+
+sum_plt <-  ggplot(live_vegetation_summary, aes(x = area_class, y = area, label = n)) +
+  geom_col()  +
+  geom_text(nudge_y = 1000000, size = 7) +
+  theme(axis.text.x = element_text(angle = 75, hjust=1,size = 15))
+  
+class_plt <- ggplot(live_vegetation, aes(fill=.pred_class, y = 1, x=area_class)) + 
+   geom_bar(position="fill", stat="identity") +  
+   theme(axis.text.x = element_text(angle = 75, hjust=1,size = 15)) +
+  theme(legend.position = "bottom")
+
+grid.arrange(sum_plt, class_plt, ncol=1,top = "Live Vegetation Exponential") 
+```
+
+
+### Live Vegetation Regular Cut
+```{r fig.height = 10, fig.width = 9, fig.align = "center", dpi=350, echo=FALSE}
+live_vegetation_data %>%
+  mutate(area_class = cut(area, seq(0,10000,250))) -> live_vegetation
+
+#10^seq(-2, 5, 0.25))
+
+live_vegetation %>% group_by(area_class) %>%
+  summarize(area = sum(area), n = n()) %>%
+  mutate(ave_area = area/n) -> live_vegetation_summary 
+
+sum_plt <-  ggplot(live_vegetation_summary, aes(x = area_class, y = area, label = n)) +
+  geom_col()  +
+  geom_text(nudge_y = 100000, size = 5) +
+  theme(axis.text.x = element_text(angle = 75, hjust=1,size = 9))
+  
+class_plt <- ggplot(live_vegetation, aes(fill=.pred_class, y = 1, x=area_class)) + 
+   geom_bar(position="fill", stat="identity") +  
+   theme(axis.text.x = element_text(angle = 75, hjust=1,size = 10)) +
+  theme(legend.position = "bottom")
+
+grid.arrange(sum_plt, class_plt, ncol=1,top = "Live Vegetation Regular Cut") 
+```
+
+
+## Sand
+
+### Sand Expotential Cut
+```{r fig.height = 10, fig.width = 9, fig.align = "center", dpi=350, echo=FALSE}
+sand_data %>%
+  mutate(area_class = cut(area, 10^seq(-2, 5, 0.25))) -> sand
+
+sand %>% group_by(area_class) %>%
+  summarize(area = sum(area), n = n()) %>%
+  mutate(ave_area = area/n) -> sand_summary 
+
+sand_sum_plt <-  ggplot(sand_summary, aes(x = area_class, y = area, label = n)) +
+  geom_col()  +
+  geom_text(nudge_y = 100000, size = 3) +
+  theme(axis.text.x = element_text(angle = 75, hjust=1,size = 9))
+  
+sand_class_plt <- ggplot(sand, aes(fill=.pred_class, y = 1, x=area_class)) + 
+   geom_bar(position="fill", stat="identity") +  
+   theme(axis.text.x = element_text(angle = 75, hjust=1,size = 10)) +
+  theme(legend.position = "bottom")
+
+grid.arrange(sand_sum_plt, sand_class_plt, ncol=1,top = "Sand Expotential Cut") 
+```
+
+
+### Sand Regular Cut
+```{r fig.height = 10, fig.width = 9, fig.align = "center", dpi=350, echo = FALSE}
+sand_data %>%
+  mutate(area_class = cut(area, seq(0,75000,1500))) -> sand
+
+sand %>% group_by(area_class) %>%
+  summarize(area = sum(area), n = n()) %>%
+  mutate(ave_area = area/n) -> sand_summary 
+
+sand_sum_plt <-  ggplot(sand_summary, aes(x = area_class, y = area, label = n)) +
+  geom_col()  +
+  geom_text(nudge_y = 100000, size = 3) +
+  theme(axis.text.x = element_text(angle = 75, hjust=1,size = 9))
+  
+sand_class_plt <- ggplot(sand, aes(fill=.pred_class, y = 1, x=area_class)) + 
+   geom_bar(position="fill", stat="identity") +  
+   theme(axis.text.x = element_text(angle = 75, hjust=1,size = 10)) +
+  theme(legend.position = "bottom")
+
+grid.arrange(sand_sum_plt, sand_class_plt, ncol=1,top = "Sand Regular Cut") 
+```
+
+
+
+## Dead Vegetation
+
+### Dead Vegetation Expotential Cut
+```{r fig.height = 10, fig.width = 9, fig.align = "center", dpi=350, echo=FALSE}
+dead_vegetation_data %>%
+  mutate(area_class = cut(area, 10^seq(-2, 5, 0.25))) -> dead_vegetation
+
+dead_vegetation %>% group_by(area_class) %>%
+  summarize(area = sum(area), n = n()) %>%
+  mutate(ave_area = area/n) -> dead_vegetation_summary 
+
+sum_plt <-  ggplot(dead_vegetation_summary, aes(x = area_class, y = area, label = n)) +
+  geom_col()  +
+  geom_text(nudge_y = 100000, size = 3) +
+  theme(axis.text.x = element_text(angle = 75, hjust=1,size = 9))
+  
+class_plt <- ggplot(dead_vegetation, aes(fill=.pred_class, y = 1, x=area_class)) + 
+   geom_bar(position="fill", stat="identity") +  
+   theme(axis.text.x = element_text(angle = 75, hjust=1,size = 10)) +
+  theme(legend.position = "bottom")
+
+grid.arrange(sum_plt, class_plt, ncol=1,top = "Dead Vegetation Expotential") 
+```
+
+### Dead Vegetation Regular Cut
+```{r fig.height = 10, fig.width = 9, fig.align = "center", dpi=350, echo=FALSE}
+dead_vegetation_data %>%
+  mutate(area_class = cut(area, seq(0, 5000, 100))) -> dead_vegetation
+
+dead_vegetation %>% group_by(area_class) %>%
+  summarize(area = sum(area), n = n()) %>%
+  mutate(ave_area = area/n) -> dead_vegetation_summary 
+
+sum_plt <-  ggplot(dead_vegetation_summary, aes(x = area_class, y = area, label = n)) +
+  geom_col()  +
+  geom_text(nudge_y = 100000, size = 3) +
+  theme(axis.text.x = element_text(angle = 75, hjust=1,size = 9))
+  
+class_plt <- ggplot(dead_vegetation, aes(fill=.pred_class, y = 1, x=area_class)) + 
+   geom_bar(position="fill", stat="identity") +  
+   theme(axis.text.x = element_text(angle = 75, hjust=1,size = 10)) +
+  theme(legend.position = "bottom")
+
+grid.arrange(sum_plt, class_plt, ncol=1,top = "Dead Vegetation Regular") 
+```
+
+
+
+
+

@@ -7,7 +7,7 @@ output: html_document
 
 
 #Setup
-```{r setup, include=FALSE}
+```{r setup, include=FALSE, echo = FALSE}
 require("knitr")
 knitr::opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
 ```
@@ -21,18 +21,98 @@ library(raster)
 library(RStoolbox)
 library(tidyverse)
 library(jsonlite)
-library(tabularaster)
 library(magrittr)
 library(tictoc)
 source("code/helpers/veggie_functions.R")
 ```
 
-##Sample All Polygons
-```{r, echo=FALSE}
-#sf_polygons <- sprintf("clean_data/quadrats/quadrat%02d/rgb.json", seq(34, 36, 1)) %>% 
- # map(.f= label_me_json_to_sf)
-##sf_polygons  
+
+# Extract all pixels from polygons
+```{r}
+extract_points_from_quadrat <- function(quadrat_sfc){
+  quadrat_sfc %>% 
+    pmap(.f = extract_points) %>% 
+    bind_rows()
+}
+
+extract_points <- function(label, imagePath, polys, area, quadrat, poly_num) {
   
+  poly_info <- tibble(label, quadrat, poly_num)
+  polys <- polys %>% st_sfc() %>% st_as_sf()
+  
+  file_name_to_extract <-paste0('clean_data/quadrats/quadrat', toString(33+quadrat),"/" , imagePath)
+  
+  img <- file_name_to_extract  %>%
+    brick()
+   crs(img) <- "+proj=utm +zone=16 +datum=WGS84 +units=m +no_defs"
+   extent(img) <- c(0,4032,0,3024)
+  
+  raster::extract(img, polys, cellnumbers = TRUE )[[1]]  %>%
+    as_tibble() %>%
+    mutate(across(.cols = everything(), .fns =  as.integer)) %>%
+    full_join(poly_info, by = character()) %>%
+    mutate(label = as.factor(label))
+}
+```
+
+
+#Extract all pixels from polygons functions
+```{r}
+layers <- list('hsv_seg_6_4.5_50', "hsv_contrast_L3_W7")
+
+for(layer in layers){
+  #Create files to read and write
+  raster_layer <- paste0(layer,".tif")
+  file_name <- paste0(layer,".rds")
+  
+  polys_sf <- polys_sf %>%
+  dplyr::select(-train_val) %>%
+  group_split(quadrat) %>%
+  map(~mutate(.x, imagePath = raster_layer)) 
+  
+  #Time how long it takes with tic(), toc()
+  tic()
+  polys_sf[1:50] %>%
+  map(.f = extract_points_from_quadrat) -> quadrat_pts
+  quadrat_pts %>% saveRDS(file = paste0("clean_data/pixel_values/", file_name))
+  toc()
+}
+```
+
+
+## Join Pixel Values
+
+```{r}
+poly_key <- polys_sf %>% 
+  st_drop_geometry() %>%
+  dplyr::select(c(quadrat, poly_num, area, train_val)) %>%
+  as_tibble()
+
+hsv <- readRDS('./clean_data/pixel_values/hsv.rds') %>%
+  bind_rows() %>%
+  full_join(poly_key, by = c('quadrat', 'poly_num'))
+
+hsv_seg <- readRDS('./clean_data/pixel_values/hsv_seg_6_4.5_50.rds') %>%
+  bind_rows() %>%
+  full_join(poly_key, by = c('quadrat', 'poly_num'))
+
+hsv_contrast <- readRDS('./clean_data/pixel_values/hsv_contrast_L3_W7.rds') %>%
+  bind_rows() %>%
+  full_join(poly_key, by = c('quadrat', 'poly_num'))
+
+
+hsv %>% left_join(hsv_seg) %>%
+  left_join(hsv_contrast) %>%
+  relocate(c(cell, quadrat, poly_num, area), .after = hsv_contrast_L3_W7) %>%
+  relocate(label, .before = hsv.1) -> pixels
+
+saveRDS(pixels, './clean_data/pixel_values/pixels.rds')
+```
+
+
+## Sample All Polygons
+
+```{r, echo=FALSE}
 sample_polygons <- function(directory, quadrats) {
   quadrats[[directory]] %>%
     label_me_json_to_sf() %>%
@@ -49,67 +129,17 @@ polys_sf <- seq(1, 50) %>%
     quadrats = sprintf("clean_data/quadrats/quadrat%02d/rgb.json", seq(34, 83, 1))
   ) %>% bind_rows()
 
-polys_sf  %<>% group_by(quadrat) %>% mutate(poly_num = c(1:length(polys))) %>% ungroup()
-(polys_sf %>% count(label) -> label_counts)
+polys_sf  %<>% group_by(quadrat) %>% mutate(poly_num = c(1:length(polys))) 
+(polys_sf %>% st_make_valid() %>% count(label) -> label_counts)
+
 ```
 
 
-
-#Helpers to extract pixel values
+# Split Sets By Polygon Summary
 
 ```{r}
-extract_points_from_quadrat <- function(quadrat_sfc){
-  quadrat_sfc %>% 
-    pmap(.f = extract_points)  %>% 
-    bind_rows()
-}
-extract_points <- function(label, imagePath, polys, area, quadrat, poly_num) {
-  poly_info <- tibble(label, quadrat, poly_num)
-  polys <- polys %>% st_sfc() %>% st_as_sf()
-  img <- paste0('clean_data/quadrats/quadrat', toString(33+quadrat),"/" , imagePath) %>%
-    brick()
-  
-  raster::extract(img, polys, cellnumbers = TRUE )[[1]]  %>%
-    as_tibble() %>%
-    mutate(across(.cols = everything(), .fns =  as.integer)) %>%
-    full_join(poly_info, by = character()) %>%
-    mutate(label = as.factor(label))
-}
-```
+set.seed(8765309)
 
-#Save
-```{r}
-layers <- list.files("clean_data/quadrats/quadrat34/", pattern = ".tif") %>% as_tibble()
-layers_extracted <- list.files("clean_data/pixel_values/") %>% as_tibble()
-layers
-layers_extracted
-```
-
-#Extract all pixels from polygons functions
-```{r}
-
-
-layers <- list("lab", "yuv", "yuv_seg_3_4.5_50", "yuv_contrast_L3_W7", "lab_contrast_L1_W3", "hsv_seg_6_4.5_50")
-
-
-for(layer in layers){
-raster_layer <- paste0(layer,".tif")
-file_name <- paste0(layer,".rds")
-
-polys_sf <- poly_key %>% dplyr::select(-train_val) %>% group_split(quadrat) 
-polys_sf %<>% map(~mutate(.x, imagePath = raster_layer)) 
-
-polys_sf[1:50] %>%
-  map(.f = extract_points_from_quadrat) -> quadrat_pts
-
-quadrat_pts %>% saveRDS(file = paste0("clean_data/pixel_values/", file_name))
-
-}
-```
-
-#Split Summary
-```{r}
-set.seed(8675309)
 train_val_split_summary <- tibble(
   label = factor(c("dead vegetation", "live vegetation", "sand")),
   train_n = c(302, 222, 189),
@@ -126,9 +156,10 @@ polys_sf %<>% bind_rows() %>%
   train_val_split_polys(train_val_split_summary)
 
 # check to make sure it agrees
-polys_sf %>%
+polys_sf %>% st_make_valid() %>%
   group_by(train_val) %>%
   count(label)
+
 ```
 
 
