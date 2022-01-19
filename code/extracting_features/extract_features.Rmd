@@ -11,7 +11,7 @@ knitr::opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
 ```
 
 ## Source Functions
-```{r, echo = FALSE, results='hide', message=FALSE}
+```{r, echo = FALSE, results = "hide", message=FALSE, echo = FALSE}
 source("code/extracting_features/library/setup.R")
 ```
 

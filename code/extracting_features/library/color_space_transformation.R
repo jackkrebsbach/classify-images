@@ -17,7 +17,9 @@ color_transform <- function(inpath, transform = "RGBtoHSV", doComp = TRUE) {
   if (doComp) {
     # read in image with imager
     #Cant get working with imager so trying magick
-    image <- inpath %>%  magick::image_read() %>% imager::magick2cimg()
+    image <- inpath %>%
+      magick::image_read() %>%
+      imager::magick2cimg()
     #image <- inpath %>% imager::load.image()
     # get transform from environment
     clr_transform <- transform %>% get()

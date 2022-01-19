@@ -8,16 +8,18 @@ output: html_document
 
 ## Load Libraries
 ```{r setup, include=FALSE}
-knitr::opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
+knitr::opts_knit$set(root.dir=normalizePath("../..")) #set working directory to the project directory
 library(tidyverse)
 library(tidymodels)
 library(ranger)
 library(randomForest)
 library(RStoolbox)
+library(sf)
 ```
 
-# Source Files
-```{r}
+
+## Source Files and build classifier model
+```{r, echo=FALSE, results=FALSE, message=FALSE, include=FALSE }
 source('./code/helpers/classify_helpers.R')
 show_engines("rand_forest")
 rf_pixel_model <- rand_forest() %>%
@@ -26,40 +28,137 @@ rf_pixel_model <- rand_forest() %>%
                   translate()
 ```
 
-# Get Pixels
-```{r}
-pixels <- readRDS('./clean_data/pixel_values/pixels.rds')
 
-train <- pixels %>% filter(train_val == 'train')
-val <- pixels %>% filter(train_val == 'val')
+## Get a list of clean pixels that make up a training, validation, and testing set
+```{r}
+'%!in%' <- function(x,y)!('%in%'(x,y))
+
+#List of all the polygons that have errors or need to be removed
+problem_polygons <- read_csv("clean_data/polygons_to_remove.csv") %>%
+  mutate(quadrat = quadrat - 33) %>%
+  mutate(key = paste0(quadrat,"_",poly_num))
+
+
+#List of class changes that need to be done on the polygons
+poly_classes_to_change <- read_csv("clean_data/polygon_class_changes.csv") %>%
+  mutate(quadrat = as.numeric(quadrat - 33)) %>%
+  mutate(key = paste0(quadrat,"_",poly_num))%>%
+  dplyr::select(c(key, class_to_change_to))
+
+
+#All the pixel values from every polygon
+pixels <- readRDS('clean_data/rdata/pixel_values/features/poly_pixels.rds') %>%
+  as_tibble() %>% 
+  mutate(key = paste0(quadrat,"_",poly_num)) %>%
+  filter(key %!in% problem_polygons$key) 
+
+
+# Remove the polygons with errors and mutate the ones that need a class change
+clean_pixels <- pixels %>%
+  left_join(poly_classes_to_change) %>%
+  mutate(label = as.factor(label), class_to_change_to = as.factor(class_to_change_to)) %>%
+  mutate(label = case_when(is.na(class_to_change_to) ~ label,
+                           !is.na(class_to_change_to) ~ class_to_change_to)) %>%
+  dplyr::select(-class_to_change_to)
 ```
 
 
-## Get All Data
+## Train test split
+```{r}
+full_train <- clean_pixels %>% 
+  filter(train_val == 'train')
+full_val <- clean_pixels %>%
+  filter(train_val == 'val')
+```
+
+
+## Sample 10 pixels per polygon 
+```{r}
+
+PIXELS_PER_POLYGON <- 5
+
+subset_training <- full_train %>%
+  group_by(key) %>%
+  slice_sample(n = PIXELS_PER_POLYGON) %>% # n is the number of pixels per polygon that we want to sample
+  ungroup()
+
+subset_validation <- full_val %>%
+  group_by(key) %>%
+  slice_sample(n = PIXELS_PER_POLYGON) %>%
+  ungroup()
+
+conf_matrix <- classify_train_val(train = subset_training, val = subset_validation)
+```
+
+
+## Define Function to train a classifier and save the data
+
+Parameters: Training set, Validation set, Model, base for the output path, save flag to save the data
 
 ```{r}
-rf_fit <- rf_pixel_model %>% fit(label ~ hsv_seg_6_4.5_50.1 + hsv_seg_6_4.5_50.2 +hsv_seg_6_4.5_50.3 +
+
+classify_train_val <- function(train, val, model = rf_pixel_model, out_path , save = TRUE){
+  if(!dir.exists(out_base_path)){dir.create(out_base_path)}
+  
+  rf_fit <- model  %>% fit(label ~ hsv_seg_6_4.5_50.1 + hsv_seg_6_4.5_50.2 + hsv_seg_6_4.5_50.3 +
+                                   hsv_contrast_L3_W7 + hsv.1 + hsv.2 + hsv.3, data = train)
+  
+    val <- val %>%
+    drop_na()
+  
+  val_pred <- predict(rf_fit, val) %>% 
+    bind_cols(predict(rf_fit, val, type = "prob")) %>%
+    bind_cols(val %>% dplyr::select(label,quadrat, poly_num, area)) 
+  
+  val_pred %>%
+    conf_mat(truth = label, .pred_class) -> val_confusion_matrix
+  
+  val_pred %>%
+    accuracy(truth = label, .pred_class) -> val_accuracy
+  
+  train_accuracy <- 1 - rf_fit$fit$prediction.error
+  
+  print(val_accuracy)
+  print(train_accuracy)
+  
+  saveRDS(val_confusion_matrix, out_path)
+  return(val_confusion_matrix)
+}
+```
+
+
+
+## Train on train set and predict on validation set
+```{r}
+train <- small_training_set
+val <- small_validation_set
+
+rf_fit <- rf_pixel_model %>% fit(label ~ hsv_seg_6_4.5_50.1 + hsv_seg_6_4.5_50.2 + hsv_seg_6_4.5_50.3 +
                                    hsv_contrast_L3_W7 + hsv.1 + hsv.2 + hsv.3, data = train)
 
-val <- val %>% drop_na()
+val <- val %>%
+  drop_na()
 
 val_pred <- predict(rf_fit, val) %>% 
   bind_cols(predict(rf_fit, val, type = "prob")) %>%
-  bind_cols(val %>% dplyr::select(label,quadrat, poly_num)) 
+  bind_cols(val %>% dplyr::select(label,quadrat, poly_num, area)) 
 
 val_pred %>%
-  conf_mat(truth = label, .pred_class) 
+  conf_mat(truth = label, .pred_class) -> val_confusion_matrix
+
 val_pred %>%
   accuracy(truth = label, .pred_class) -> val_accuracy
+
 train_accuracy <- 1 - rf_fit$fit$prediction.error
+
 print(val_accuracy)
 print(train_accuracy)
 
-saveRDS(val_pred, "./clean_data/pixel_values/val_pred.rds")
+#saveRDS(val_pred, "./clean_data/pixel_values/predictions/val_pred_small_training_set.rds")
 ```
 
 
-#Classify Image
+## Classify Image
 ```{r}
 
 pred_fun <- function(...){
@@ -111,7 +210,7 @@ classify_image <- function(quadrat_dir, rf_fit){
 }
 ```
 
-# First Run
+## First Run
 ```{r}
 
 df <- tibble( data_set = c("training", "training","training", "validation","validation", "validation"),
@@ -141,7 +240,7 @@ ggplot(df, aes(color_space, accuracy)) +
 
 
 
-# Look at first layers
+## Look at first layers
 ```{r}
 
 
@@ -170,7 +269,7 @@ ggplot(df, aes(color_space, accuracy)) +
 ```
 
 
-#Plot Accuracy over layers
+## Plot Accuracy over layers
 ```{r}
 
 
@@ -222,7 +321,7 @@ feature_names <- names(train_values)[-1]
 ```
 
 
-#Get Accuracies
+## Get Accuracies
 ```{r}
 get_layer_accuracy <- function(feature_name, train_values, val_values){
   rf_fit <- rf_pixel_model %>% fit(label ~ get(feature_name), data = train_values)

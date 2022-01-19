@@ -31,7 +31,6 @@ def segment(image_path, spatial_radius = 6 , range_radius = 4.5, min_density =  
         
     return out_path
 
-
 #if __name__ == "__main__":
 #    out_path = segment(image_path = sys.argv[1],
 #                                   spatial_radius = sys.argv[2],

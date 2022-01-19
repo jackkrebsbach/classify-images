@@ -38,14 +38,17 @@ extract_points_from_quadrat <- function(quadrat_sfc){
 extract_points <- function(label, imagePath, polys, area, quadrat, poly_num) {
   
   poly_info <- tibble(label, quadrat, poly_num)
-  polys <- polys %>% st_sfc() %>% st_as_sf()
+  
+  polys <- polys %>%
+    st_sfc() %>%
+    st_as_sf()
   
   file_name_to_extract <-paste0('clean_data/quadrats/quadrat', toString(33+quadrat),"/" , imagePath)
   
   img <- file_name_to_extract  %>%
     brick()
-   crs(img) <- "+proj=utm +zone=16 +datum=WGS84 +units=m +no_defs"
-   extent(img) <- c(0,4032,0,3024)
+  
+  extent(img) <- c(0,4032,0,3024)
   
   raster::extract(img, polys, cellnumbers = TRUE )[[1]]  %>%
     as_tibble() %>%
@@ -66,15 +69,19 @@ for(layer in layers){
   file_name <- paste0(layer,".rds")
   
   polys_sf <- polys_sf %>%
-  dplyr::select(-train_val) %>%
-  group_split(quadrat) %>%
-  map(~mutate(.x, imagePath = raster_layer)) 
+    dplyr::select(-train_val) %>%
+    group_split(quadrat) %>%
+    map(~mutate(.x, imagePath = raster_layer)) 
   
   #Time how long it takes with tic(), toc()
   tic()
+  
   polys_sf[1:50] %>%
-  map(.f = extract_points_from_quadrat) -> quadrat_pts
-  quadrat_pts %>% saveRDS(file = paste0("clean_data/pixel_values/", file_name))
+    map(.f = extract_points_from_quadrat) -> quadrat_pts
+  
+  quadrat_pts %>%
+    saveRDS(file = paste0("clean_data/pixel_values/", file_name))
+  
   toc()
 }
 ```
@@ -119,17 +126,20 @@ sample_polygons <- function(directory, quadrats) {
     dplyr::mutate(quadrat = directory, area = st_area(.$polys)) %>%
     dplyr::mutate(label = case_when(label == "live Marram grass" ~ "live vegetation", TRUE ~ label)) %>%
     filter(is.element(label, c("live vegetation", "dead vegetation", "sand"))) %>%
-    mutate(poly_num = c(1:length(polys))) %>%
-    return()
+    mutate(poly_num = c(1:length(polys)))
 }
 
 polys_sf <- seq(1, 50) %>%
   lapply(
     FUN = sample_polygons,
     quadrats = sprintf("clean_data/quadrats/quadrat%02d/rgb.json", seq(34, 83, 1))
-  ) %>% bind_rows()
+  ) %>%
+  bind_rows()
 
-polys_sf  %<>% group_by(quadrat) %>% mutate(poly_num = c(1:length(polys))) 
+polys_sf  %<>%
+  group_by(quadrat) %>%
+  mutate(poly_num = c(1:length(polys))) 
+
 (polys_sf %>% st_make_valid() %>% count(label) -> label_counts)
 
 ```
@@ -295,3 +305,5 @@ save(train_values, file = "clean_data/rdata/math_fest/train_values.RData")
 save(val_values, file = "clean_data/rdata/math_fest/val_values.RData")
 save(test_values, file = "clean_data/rdata/math_fest/test_values.RData")
 ```
+
+
