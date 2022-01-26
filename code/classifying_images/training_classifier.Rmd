@@ -5,7 +5,6 @@ date: "7/31/2021"
 output: html_document
 ---
 
-
 ## Load Libraries
 ```{r setup, include=FALSE}
 knitr::opts_knit$set(root.dir=normalizePath("../..")) #set working directory to the project directory
@@ -74,64 +73,38 @@ full_val <- clean_pixels %>%
 
 ## Sample 10 pixels per polygon 
 ```{r}
-
-PIXELS_PER_POLYGON <- 5
+PIXELS <- 50000
 
 subset_training <- full_train %>%
-  group_by(key) %>%
-  slice_sample(n = PIXELS_PER_POLYGON) %>% # n is the number of pixels per polygon that we want to sample
+  group_by(label) %>%
+  slice_sample(n = PIXELS) %>% # n is the number of pixels per polygon that we want to sample
   ungroup()
-
-subset_validation <- full_val %>%
-  group_by(key) %>%
-  slice_sample(n = PIXELS_PER_POLYGON) %>%
-  ungroup()
-
-conf_matrix <- classify_train_val(train = subset_training, val = subset_validation)
+#conf_matrix <- classify_train_val(train = subset_training, val = full_val)
 ```
 
 
-## Define Function to train a classifier and save the data
-
-Parameters: Training set, Validation set, Model, base for the output path, save flag to save the data
-
+## Get Percentage Confusion Matrix
 ```{r}
-
-classify_train_val <- function(train, val, model = rf_pixel_model, out_path , save = TRUE){
-  if(!dir.exists(out_base_path)){dir.create(out_base_path)}
+# Takes in direct ouput from conf_mat
+get_percentage_confusion_matrix <- function(conf_matrix){
   
-  rf_fit <- model  %>% fit(label ~ hsv_seg_6_4.5_50.1 + hsv_seg_6_4.5_50.2 + hsv_seg_6_4.5_50.3 +
-                                   hsv_contrast_L3_W7 + hsv.1 + hsv.2 + hsv.3, data = train)
-  
-    val <- val %>%
-    drop_na()
-  
-  val_pred <- predict(rf_fit, val) %>% 
-    bind_cols(predict(rf_fit, val, type = "prob")) %>%
-    bind_cols(val %>% dplyr::select(label,quadrat, poly_num, area)) 
-  
-  val_pred %>%
-    conf_mat(truth = label, .pred_class) -> val_confusion_matrix
-  
-  val_pred %>%
-    accuracy(truth = label, .pred_class) -> val_accuracy
-  
-  train_accuracy <- 1 - rf_fit$fit$prediction.error
-  
-  print(val_accuracy)
-  print(train_accuracy)
-  
-  saveRDS(val_confusion_matrix, out_path)
-  return(val_confusion_matrix)
+  conf_matrix[[1]] %>%
+    as_tibble() %>%
+    pivot_wider(names_from = Truth, values_from = n) %>%
+    mutate(`dead vegetation` = `dead vegetation`/ sum(`dead vegetation`),
+           `live vegetation` = `live vegetation`/ sum(`live vegetation`),
+           sand = sand/sum(sand)) %>%
+    return()
 }
 ```
 
 
-
 ## Train on train set and predict on validation set
 ```{r}
-train <- small_training_set
-val <- small_validation_set
+OUT_FILE <-"all_pixels"
+
+train <- full_train
+val <- full_val
 
 rf_fit <- rf_pixel_model %>% fit(label ~ hsv_seg_6_4.5_50.1 + hsv_seg_6_4.5_50.2 + hsv_seg_6_4.5_50.3 +
                                    hsv_contrast_L3_W7 + hsv.1 + hsv.2 + hsv.3, data = train)
@@ -151,10 +124,58 @@ val_pred %>%
 
 train_accuracy <- 1 - rf_fit$fit$prediction.error
 
-print(val_accuracy)
-print(train_accuracy)
 
-#saveRDS(val_pred, "./clean_data/pixel_values/predictions/val_pred_small_training_set.rds")
+c <- val_confusion_matrix %>% get_percentage_confusion_matrix()
+
+saveRDS(val_pred, paste0("./clean_data/rdata/pixel_values/predictions/",OUT_FILE, "_val_pixels.rds" ))
+saveRDS(c, paste0("./clean_data/rdata/pixel_values/predictions/",OUT_FILE, "_percentage_conf_mat.rds" ))
+saveRDS(val_confusion_matrix, paste0("./clean_data/rdata/pixel_values/predictions/",OUT_FILE, "_count_conf_mat.rds" ))
+saveRDS(val_accuracy, paste0("./clean_data/rdata/pixel_values/predictions/",OUT_FILE, "_validation_accuracy.rds" ))
+```
+
+
+
+
+
+```{r}
+ten_pixels <- tibble(pred = c("dead_veg", "live_veg", "sand"),
+                     dead_veg= c(28783, 667, 2606),
+                     live_veg= c(894,75203, 73),
+                     sand = c(9833, 377, 345554))
+
+fifty <- tibble(pred = c("dead_veg", "live_veg", "sand"),
+                     dead_veg= c(27642, 755,3659 ),
+                     live_veg= c(883,75193, 94),
+                     sand = c(1442, 182, 354140))
+
+full_train <- tibble(pred = c("dead_veg", "live_veg", "sand"),
+                     dead_veg= c(27586, 797, 3673),
+                     live_veg= c(883, 75188, 99),
+                     sand = c(1399, 182, 354183))
+fifty
+```
+
+
+```{r}
+options(digits = 2)
+ten_pixels %>%
+  mutate(dead_veg = dead_veg/sum(dead_veg), live_veg = live_veg/sum(live_veg), sand = sand/sum(sand)) -> ten_sum
+
+fifty %>%
+  mutate(dead_veg = dead_veg/sum(dead_veg), live_veg = live_veg/sum(live_veg), sand = sand/sum(sand)) -> fifty_sum
+
+full_train %>%
+  mutate(dead_veg = dead_veg/sum(dead_veg), live_veg = live_veg/sum(live_veg), sand = sand/sum(sand)) -> full_sum
+
+full_sum
+```
+
+```{r}
+fifty_sum
+```
+
+```{r}
+full_sum
 ```
 
 
