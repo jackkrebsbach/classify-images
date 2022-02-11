@@ -70,6 +70,14 @@ full_val <- clean_pixels %>%
   filter(train_val == 'val')
 ```
 
+## Saving Data
+```{r}
+saveRDS(full_train, './clean_data/rdata/pixel_values/training_set.rds')
+saveRDS(full_val, './clean_data/rdata/pixel_values/validation_set.rds')
+
+```
+
+
 
 ## Sample 10 pixels per polygon 
 ```{r}

@@ -59,7 +59,7 @@ color_out
 ## Texture Calculations
 ```{r}
 #Texture Parameters
-texture_windows <- tibble(window = c(5L, 11L)) 
+texture_windows <- tibble(window = c(11L)) 
 texture_layers <- tibble(layer = c(3L))
 texture_stats <- tibble(statistic = c("contrast"))
 
@@ -74,9 +74,9 @@ texture_parameters <- color_out %>%
 
 texture_out <- texture_parameters %>%
   mutate(inpath_exists = file.exists(inpath)) %>%
-  partition(cl) %>%
+ partition(cl) %>%
   mutate(outpath = texture_calculations_function(inpath, window, statistic, layer,
-                                                 doComp = FALSE, overWrite = FALSE)) %>%
+                                                 doComp = TRUE, overWrite = FALSE)) %>%
     collect() %>%
   mutate(outpath_exists = file.exists(outpath)) 
 texture_out

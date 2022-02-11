@@ -3,7 +3,7 @@ import pymeanshift as pms
 from os import path
 import cv2
 import sys
-
+                                              #Spectral
 def segment(image_path, spatial_radius = 6 , range_radius = 4.5, min_density =  50, doComp = True):
     #Check to make sure the file exists
     if not path.isfile(image_path) or not isinstance(image_path, str):

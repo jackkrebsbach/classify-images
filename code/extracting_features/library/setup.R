@@ -21,12 +21,14 @@ color_transforms_function <- function(inpaths, transforms, doComp = FALSE, overW
     doCompVector <- list(inpaths, transforms) %>% 
       pmap(.f = getColorPath) %>% 
       unlist() %>% 
-      file.exists() %>% !.
+      file.exists() %>%
+      !.
   } 
   args <- list(inpaths, transforms, doCompVector)
   args %>% 
       pmap(.f = color_transform) %>% 
-    unlist() %>% return()
+    unlist() %>%
+    return()
 }
 
 
@@ -37,7 +39,8 @@ texture_calculations_function <- function(inpaths, windows, statistics, layers, 
     doCompVector <- list(inpaths, windows, statistics, layers) %>% 
       pmap(.f = getTexturePath) %>% 
       unlist() %>% 
-      file.exists() %>% !.
+      file.exists() %>%
+      !.
   } 
   
   args <- list(inpaths, windows, statistics, layers, doCompVector)
@@ -61,12 +64,14 @@ image_segmentation_function <- function(inpaths, spatial_radii, range_radii, min
     doCompVector <- list(inpaths, spatial_radii, range_radii, min_densities) %>% 
       pmap(.f = getSegmentPath) %>% 
       unlist() %>% 
-      file.exists() %>% !.
+      file.exists() %>%
+      !.
   }
   args <- list(inpaths, spatial_radii, range_radii, min_densities, doCompVector)
   args %>% 
     pmap(.f = segment) %>% 
-    unlist() %>% return()
+    unlist() %>% 
+    return()
 }
 
 

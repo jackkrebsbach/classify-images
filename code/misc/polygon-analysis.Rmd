@@ -12,7 +12,7 @@ pdf_document: default
 ```{r setup, include=FALSE}
 require("knitr")
 knitr::opts_chunk$set(echo = TRUE)
-knitr::opts_knit$set(root.dir=normalizePath("..")) #set working directory to the project directory
+knitr::opts_knit$set(root.dir=normalizePath("../..")) #set working directory to the project directory
 ```
 
 ```{r}
