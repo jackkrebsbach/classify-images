@@ -14,7 +14,10 @@ getStack <- function(dir) {
 
 
 classify_image <- function(quadrat_dir, rfit){
-    quadrat <- quadrat_dir %>% str_split("/") %>% .[[1]] %>% .[3]
+    quadrat <- quadrat_dir %>%
+      str_split("/") %>%
+      .[[1]] %>%
+      .[3]
     
     file_to_write <- paste0('clean_data/classified/', quadrat, '.tif')
 

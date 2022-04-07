@@ -11,9 +11,7 @@ knitr::opts_knit$set(root.dir=normalizePath("../..")) #set working directory to 
 library(tidyverse)
 library(tidymodels)
 library(ranger)
-library(randomForest)
-library(RStoolbox)
-library(sf)
+library(rlist)
 ```
 
 
@@ -37,7 +35,6 @@ problem_polygons <- read_csv("clean_data/polygons_to_remove.csv") %>%
   mutate(quadrat = quadrat - 33) %>%
   mutate(key = paste0(quadrat,"_",poly_num))
 
-
 #List of class changes that need to be done on the polygons
 poly_classes_to_change <- read_csv("clean_data/polygon_class_changes.csv") %>%
   mutate(quadrat = as.numeric(quadrat - 33)) %>%
@@ -46,11 +43,10 @@ poly_classes_to_change <- read_csv("clean_data/polygon_class_changes.csv") %>%
 
 
 #All the pixel values from every polygon
-pixels <- readRDS('clean_data/rdata/pixel_values/features/poly_pixels.rds') %>%
+pixels <- readRDS('clean_data/rdata/pixel_values/pixels.rds') %>%
   as_tibble() %>% 
   mutate(key = paste0(quadrat,"_",poly_num)) %>%
   filter(key %!in% problem_polygons$key) 
-
 
 # Remove the polygons with errors and mutate the ones that need a class change
 clean_pixels <- pixels %>%
@@ -65,23 +61,18 @@ clean_pixels <- pixels %>%
 ## Train test split
 ```{r}
 full_train <- clean_pixels %>% 
-  filter(train_val == 'train')
+  filter(train_val == 'train') %>%
+  select(-c(train_val, cell, dir, inpath, area, poly_num, quadrat, key))
+
+
 full_val <- clean_pixels %>%
-  filter(train_val == 'val')
+  filter(train_val == 'val') %>%
+  select(-train_val)
 ```
-
-## Saving Data
-```{r}
-saveRDS(full_train, './clean_data/rdata/pixel_values/training_set.rds')
-saveRDS(full_val, './clean_data/rdata/pixel_values/validation_set.rds')
-
-```
-
-
 
 ## Sample 10 pixels per polygon 
 ```{r}
-PIXELS <- 50000
+PIXELS <- 1000
 
 subset_training <- full_train %>%
   group_by(label) %>%
@@ -90,6 +81,195 @@ subset_training <- full_train %>%
 #conf_matrix <- classify_train_val(train = subset_training, val = full_val)
 ```
 
+
+## Test Single Layer
+```{r}
+##Returns accuracy and importance tibble
+test_single_layer <- function(train, val, model) {
+  print('Starting to train')
+  rf_fit <-  model %>%
+    fit(label ~ ., data = train)
+  
+  val <- val %>%
+    drop_na()
+  
+  val_pred <- predict(rf_fit, val) %>%
+    bind_cols(predict(rf_fit, val, type = "prob")) %>%
+    bind_cols(val %>% dplyr::select(label, dir, poly_num, area))
+  
+  val_pred %>%
+    accuracy(truth = label, .pred_class) -> val_accuracy
+  
+  
+  importance <- rf_fit$fit$variable.importance
+    print('Ending the train')
+  return(list(val_accuracy$.estimate, importance))
+  
+}
+
+```
+
+
+## Define Variables to implement feature selection
+```{r}
+train <- subset_training %>%
+  drop_na() %>%
+  select(c(label, 5,4,10,28, 30 ,40, 21))
+
+val <- full_val
+
+NUM_RUNS_PER_FEATURE <-3
+NUM_OF_FEATURES <- 4
+
+
+all_features <- train %>%
+  select(-label) %>%
+  names()
+
+features_added <- c()
+
+
+data <- list()
+
+for( i in 1:NUM_OF_FEATURES){
+  
+  
+    features_to_test <- all_features %>%
+        list.filter(. %!in% features_added )
+  
+
+   last <- features_added 
+   
+   forward_selection_data <- tibble(feature = character(),
+                                    mean_val_accuracy = numeric(),
+                                    sd_val_accuracy = numeric(),
+                                    importance = numeric())
+     if(!is.null(last)){
+        for(imps in 1:length(last)){
+            forward_selection_data %>% 
+                 add_column("{last[imps]}_importance":= numeric()) -> forward_selection_data
+      }
+    }
+   
+    for(j in 1:length(features_to_test)){
+      
+      t <- features_added %>% 
+        list.append(features_to_test[j]) %>%
+        list.append('label')
+      
+      train_set <- train[t]
+      
+      v <- val
+      
+      model <- rf_pixel_model
+      
+      total_val_accuracy <- list()
+      
+      for(run in 1:NUM_RUNS_PER_FEATURE){
+        out <- test_single_layer(train_set ,v, model)
+        importance <- out[[2]][features_to_test[j]]
+        val_accuracy <- out[[1]]
+        total_val_accuracy[[run]] <- val_accuracy
+      }
+      
+      mean <- total_val_accuracy %>%
+        unlist %>%
+        mean
+      
+      sd <- total_val_accuracy %>%
+        unlist %>%
+        sd
+  
+     if(i!=1) {
+      prev <- out[[2]][features_added] %>%
+          .[!is.na(.)] %>%
+          bind_rows() %>%
+          pivot_longer(cols = everything())
+      }
+     
+    
+    new_row <- tibble( feature =  features_to_test[j],
+                               mean_val_accuracy = mean,
+                               sd_val_accuracy = sd,
+                              importance = importance)
+     if(exists('prev')){
+        for(imps in 1:nrow(prev)){
+          slice <- prev %>% slice(imps)
+            new_row %>% 
+                 add_column("{slice$name}_importance":= slice$value) -> new_row
+      }
+    }
+      
+      forward_selection_data %>%
+        bind_rows(new_row) -> forward_selection_data
+   }
+
+   
+   forward_selection_data  %>%
+     filter(mean_val_accuracy == max(mean_val_accuracy)) -> max
+  
+   
+   forward_selection_data %>% 
+     add_column("{max$feature}_importance":= max$importance) -> forward_selection_data
+   
+     
+   features_added %>%
+     append(max$feature) -> features_added
+   
+   data[[i]] <- forward_selection_data
+   
+}
+#out <- test_layer(train = train, val = val, model = rf_pixel_model)
+```
+
+## Train on train set and predict on validation set
+```{r}
+train <- subset_training
+#train$random <- runif(nrow(train), min = 0, max = 1)
+val <- full_val
+
+rf_fit <- rf_pixel_model %>%
+  fit(label ~  ., data = train)
+
+val <- val %>%
+  drop_na()
+
+val_pred <- predict(rf_fit, val) %>% 
+  bind_cols(predict(rf_fit, val, type = "prob")) %>%
+  bind_cols(val %>% dplyr::select(label, dir, poly_num, area)) 
+
+val_pred %>%
+  conf_mat(truth = label, .pred_class) -> val_confusion_matrix
+
+val_pred %>%
+  accuracy(truth = label, .pred_class) -> val_accuracy
+
+train_accuracy <- 1 - rf_fit$fit$prediction.error
+
+c <- val_confusion_matrix %>%
+  get_percentage_confusion_matrix()
+
+```
+
+## Look at importance
+```{r}
+importance <- rf_fit$fit$variable.importance
+
+m <- max(importance)
+min <- min(importance)
+print(m)
+print(min)
+(importance)
+```
+
+## Saving Data
+```{r}
+#OUT_FILE <-"all_pixels"
+# saveRDS(val_pred, paste0("./clean_data/rdata/pixel_values/predictions/",OUT_FILE, "_val_pixels.rds" ))
+# saveRDS(c, paste0("./clean_data/rdata/pixel_values/predictions/",OUT_FILE, "_percentage_conf_mat.rds" ))
+# saveRDS(val_confusion_matrix, paste0("./clean_data/rdata/pixel_values/predictions/",OUT_FILE, "_count_conf_mat.rds" ))
+# saveRDS(val_accuracy, paste0("./clean_data/rdata/pixel_values/predictions/",OUT_FILE, "_validation_accuracy.rds" ))
+```
 
 ## Get Percentage Confusion Matrix
 ```{r}
@@ -107,41 +287,13 @@ get_percentage_confusion_matrix <- function(conf_matrix){
 ```
 
 
-## Train on train set and predict on validation set
+
+## Saving Data
 ```{r}
-OUT_FILE <-"all_pixels"
+saveRDS(full_train, './clean_data/rdata/pixel_values/training_set.rds')
+saveRDS(full_val, './clean_data/rdata/pixel_values/validation_set.rds')
 
-train <- full_train
-val <- full_val
-
-rf_fit <- rf_pixel_model %>% fit(label ~ hsv_seg_6_4.5_50.1 + hsv_seg_6_4.5_50.2 + hsv_seg_6_4.5_50.3 +
-                                   hsv_contrast_L3_W7 + hsv.1 + hsv.2 + hsv.3, data = train)
-
-val <- val %>%
-  drop_na()
-
-val_pred <- predict(rf_fit, val) %>% 
-  bind_cols(predict(rf_fit, val, type = "prob")) %>%
-  bind_cols(val %>% dplyr::select(label,quadrat, poly_num, area)) 
-
-val_pred %>%
-  conf_mat(truth = label, .pred_class) -> val_confusion_matrix
-
-val_pred %>%
-  accuracy(truth = label, .pred_class) -> val_accuracy
-
-train_accuracy <- 1 - rf_fit$fit$prediction.error
-
-
-c <- val_confusion_matrix %>% get_percentage_confusion_matrix()
-
-saveRDS(val_pred, paste0("./clean_data/rdata/pixel_values/predictions/",OUT_FILE, "_val_pixels.rds" ))
-saveRDS(c, paste0("./clean_data/rdata/pixel_values/predictions/",OUT_FILE, "_percentage_conf_mat.rds" ))
-saveRDS(val_confusion_matrix, paste0("./clean_data/rdata/pixel_values/predictions/",OUT_FILE, "_count_conf_mat.rds" ))
-saveRDS(val_accuracy, paste0("./clean_data/rdata/pixel_values/predictions/",OUT_FILE, "_validation_accuracy.rds" ))
 ```
-
-
 
 
 
@@ -178,13 +330,6 @@ full_train %>%
 full_sum
 ```
 
-```{r}
-fifty_sum
-```
-
-```{r}
-full_sum
-```
 
 
 ## Classify Image
